@@ -75,3 +75,21 @@ variable "health_check_path" {
   type        = string
   default     = "/login"
 }
+
+variable "domain_name" {
+  description = "Domain name for the application (tech-with-tobi.com)"
+  type        = string
+  default     = "tech-with-tobi.com"
+}
+
+variable "route53_zone_name" {
+  description = "Route 53 hosted zone name (tech-with-tobi.com)"
+  type        = string
+  default     = "tech-with-tobi.com"
+}
+
+variable "create_route53_record" {
+  description = "Whether to create Route 53 DNS record"
+  type        = bool
+  default     = false
+}

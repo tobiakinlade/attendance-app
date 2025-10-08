@@ -41,14 +41,43 @@ resource "aws_lb_target_group" "main" {
   }
 }
 
-# HTTP Listener
+# HTTP Listener - Redirect to HTTPS if certificate exists
 resource "aws_lb_listener" "http" {
   load_balancer_arn = aws_lb.main.arn
   port              = "80"
   protocol          = "HTTP"
 
   default_action {
+    type = var.domain_name != "" ? "redirect" : "forward"
+
+    # Redirect to HTTPS if certificate exists
+    dynamic "redirect" {
+      for_each = var.domain_name != "" ? [1] : []
+      content {
+        port        = "443"
+        protocol    = "HTTPS"
+        status_code = "HTTP_301"
+      }
+    }
+
+    # Forward to target group if no certificate
+    target_group_arn = var.domain_name == "" ? aws_lb_target_group.main.arn : null
+  }
+}
+
+# HTTPS Listener (only if certificate exists)
+resource "aws_lb_listener" "https" {
+  count             = var.domain_name != "" ? 1 : 0
+  load_balancer_arn = aws_lb.main.arn
+  port              = "443"
+  protocol          = "HTTPS"
+  ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-2021-06"
+  certificate_arn   = aws_acm_certificate.main[0].arn
+
+  default_action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.main.arn
   }
+
+  depends_on = [aws_acm_certificate_validation.main]
 }
