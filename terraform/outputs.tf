@@ -47,3 +47,18 @@ output "ecr_push_commands" {
     docker push ${aws_ecr_repository.main.repository_url}:latest
   EOT
 }
+
+output "application_url" {
+  description = "Application URL (custom domain or ALB DNS)"
+  value       = var.domain_name != "" ? "https://${var.domain_name}" : "http://${aws_lb.main.dns_name}"
+}
+
+output "certificate_arn" {
+  description = "ACM certificate ARN"
+  value       = var.domain_name != "" ? aws_acm_certificate.main[0].arn : "N/A - No certificate created"
+}
+
+output "route53_record" {
+  description = "Route 53 DNS record"
+  value       = var.create_route53_record ? aws_route53_record.main[0].fqdn : "N/A - No Route 53 record created"
+}
