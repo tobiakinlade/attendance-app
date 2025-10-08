@@ -1,0 +1,14 @@
+.git
+.gitignore
+terraform/
+.github/
+README.md
+.env
+*.md
+docker-compose.yml
+.DS_Store
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
