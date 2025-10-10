@@ -77,15 +77,15 @@ variable "health_check_path" {
 }
 
 variable "domain_name" {
-  description = "Domain name for the application (tech-with-tobi.com)"
+  description = "Domain name for the application "
   type        = string
-  default     = "tech-with-tobi.com"
+  default     = ""
 }
 
 variable "route53_zone_name" {
-  description = "Route 53 hosted zone name (tech-with-tobi.com)"
+  description = "Route 53 hosted zone name "
   type        = string
-  default     = "tech-with-tobi.com"
+  default     = ""
 }
 
 variable "create_route53_record" {

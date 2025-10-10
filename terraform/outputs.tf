@@ -41,7 +41,7 @@ output "ecr_push_commands" {
     aws ecr get-login-password --region ${var.aws_region} | docker login --username AWS --password-stdin ${aws_ecr_repository.main.repository_url}
     
     # Tag your image
-    docker tag attendance-app:latest ${aws_ecr_repository.main.repository_url}:latest
+    docker tag tobiakinlade/attendance-app:latest ${aws_ecr_repository.main.repository_url}:latest
     
     # Push to ECR
     docker push ${aws_ecr_repository.main.repository_url}:latest
