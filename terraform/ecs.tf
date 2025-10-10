@@ -182,18 +182,6 @@ resource "aws_ecs_service" "main" {
 
   health_check_grace_period_seconds = 300
 
- # deployment_configuration {
- #    maximum_percent         = 200
- #    minimum_healthy_percent = 100
-    
- #    deployment_circuit_breaker {
- #      enable   = true
- #      rollback = true
- #    }
- # }
-
-
-  
 
   depends_on = [
     aws_lb_listener.http,
