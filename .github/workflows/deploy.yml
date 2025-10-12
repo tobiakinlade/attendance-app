@@ -113,7 +113,7 @@ jobs:
       - name: Download task definition
         run: |
           aws ecs describe-task-definition \
-            --task-definition ${{ env.ECS_CLUSTER }} \
+            --task-definition attendance-app-dev \
             --query taskDefinition > task-definition.json
       
       - name: Update ECS task definition
