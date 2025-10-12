@@ -6,3 +6,7 @@ Werkzeug>=2.0.0
 bcrypt
 prometheus-client
 python-json-logger
+flake8==7.0.0
+pytest==7.4.3
+pytest-cov==4.1.0
+black==23.12.1
