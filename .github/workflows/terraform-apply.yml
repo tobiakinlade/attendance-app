@@ -51,6 +51,9 @@ jobs:
           terraform plan -no-color -input=false \
             -var="environment=dev" \
             -var="project_name=attendance-app" \
+            -var="domain_name=tech-with-tobi.com" \
+            -var="route53_zone_name=tech-with-tobi.com" \
+            -var="create_route53_record=true" \
             -var="db_username=${{ secrets.DB_USERNAME }}" \
             -var="db_password=${{ secrets.DB_PASSWORD }}" \
             -out=tfplan
