@@ -46,6 +46,11 @@
       "Effect": "Allow",
       "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
       "Resource": "arn:aws:s3:::attendance-app-s3-backend/*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:DeleteItem"],
+      "Resource": "arn:aws:dynamodb:eu-west-2:180048382895:table/attendance-app-state-lock"
     }
   ]
 }
