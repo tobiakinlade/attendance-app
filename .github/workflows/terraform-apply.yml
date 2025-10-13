@@ -52,7 +52,7 @@ jobs:
             -var="environment=dev" \
             -var="project_name=attendance-app" \
             -var="db_username=${{ secrets.DB_USERNAME }}" \
-            -var="db_password=${{ secrets.DB_PASSWORD }}"
+            -var="db_password=${{ secrets.DB_PASSWORD }}" \
             -out=tfplan
 
       - name: Terraform Apply
