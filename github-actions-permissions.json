@@ -121,6 +121,29 @@
       "Resource": "*"
     },
     {
+  "Effect": "Allow",
+  "Action": [
+    "elasticloadbalancing:CreateLoadBalancer",
+    "elasticloadbalancing:DescribeLoadBalancers",
+    "elasticloadbalancing:DescribeLoadBalancerAttributes",
+    "elasticloadbalancing:ModifyLoadBalancerAttributes",
+    "elasticloadbalancing:DeleteLoadBalancer",
+    "elasticloadbalancing:CreateTargetGroup",
+    "elasticloadbalancing:DescribeTargetGroups",
+    "elasticloadbalancing:DescribeTargetGroupAttributes",
+    "elasticloadbalancing:ModifyTargetGroupAttributes",
+    "elasticloadbalancing:DeleteTargetGroup",
+    "elasticloadbalancing:CreateListener",
+    "elasticloadbalancing:DescribeListeners",
+    "elasticloadbalancing:DeleteListener",
+    "elasticloadbalancing:ModifyListener",
+    "elasticloadbalancing:AddTags",
+    "elasticloadbalancing:RemoveTags",
+    "elasticloadbalancing:DescribeTags"
+  ],
+  "Resource": "*"
+},
+    {
       "Effect": "Allow",
       "Action": [
         "logs:CreateLogGroup",
