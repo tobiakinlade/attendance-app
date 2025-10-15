@@ -21,18 +21,18 @@
 </head>
 <body class="min-h-screen bg-gray-50">
     <!-- Main Header -->
-    <header class="bg-green-600">
+    <header class="bg-navy">
         <div class="max-w-full mx-auto">
             <h1 class="text-white text-4xl font-bold text-center py-16">Student Attendance</h1>
             {% if current_user.is_authenticated %}
-            <nav class="bg-green-600-light">
+            <nav class="bg-navy-light">
                 <div class="max-w-7xl mx-auto px-6">
                     <div class="flex items-center justify-between h-16">
                         <div class="flex items-center space-x-8">
-                            <a href="{{ url_for('main.dashboard') }}" class="text-white hover:bg-green-600 px-4 py-2 rounded-md text-lg">Dashboard</a>
-                            <a href="{{ url_for('main.students') }}" class="text-white hover:bg-green-600 px-4 py-2 rounded-md text-lg">Students</a>
-                            <a href="{{ url_for('main.attendance') }}" class="text-white hover:bg-green-600 px-4 py-2 rounded-md text-lg">Attendance</a>
-                            <a href="{{ url_for('main.classes') }}" class="text-white hover:bg-green-600 px-4 py-2 rounded-md text-lg">Classes</a>
+                            <a href="{{ url_for('main.dashboard') }}" class="text-white hover:bg-navy px-4 py-2 rounded-md text-lg">Dashboard</a>
+                            <a href="{{ url_for('main.students') }}" class="text-white hover:bg-navy px-4 py-2 rounded-md text-lg">Students</a>
+                            <a href="{{ url_for('main.attendance') }}" class="text-white hover:bg-navy px-4 py-2 rounded-md text-lg">Attendance</a>
+                            <a href="{{ url_for('main.classes') }}" class="text-white hover:bg-navy px-4 py-2 rounded-md text-lg">Classes</a>
                         </div>
                         <div class="flex items-center space-x-6">
                             <span class="text-white text-lg">{{ current_user.username }}</span>
@@ -48,11 +48,11 @@
     <!-- Mobile menu -->
     <div class="mobile-menu md:hidden">
         {% if current_user.is_authenticated %}
-            <div class="px-4 pt-4 pb-4 space-y-2 bg-green-600">
-                <a href="{{ url_for('main.dashboard') }}" class="text-white hover:bg-green-600-light block px-4 py-3 rounded-md text-lg">Dashboard</a>
-                <a href="{{ url_for('main.students') }}" class="text-white hover:bg-green-600-light block px-4 py-3 rounded-md text-lg">Students</a>
-                <a href="{{ url_for('main.attendance') }}" class="text-white hover:bg-green-600-light block px-4 py-3 rounded-md text-lg">Attendance</a>
-                <a href="{{ url_for('main.classes') }}" class="text-white hover:bg-green-600-light block px-4 py-3 rounded-md text-lg">Classes</a>
+            <div class="px-4 pt-4 pb-4 space-y-2 bg-navy">
+                <a href="{{ url_for('main.dashboard') }}" class="text-white hover:bg-navy-light block px-4 py-3 rounded-md text-lg">Dashboard</a>
+                <a href="{{ url_for('main.students') }}" class="text-white hover:bg-navy-light block px-4 py-3 rounded-md text-lg">Students</a>
+                <a href="{{ url_for('main.attendance') }}" class="text-white hover:bg-navy-light block px-4 py-3 rounded-md text-lg">Attendance</a>
+                <a href="{{ url_for('main.classes') }}" class="text-white hover:bg-navy-light block px-4 py-3 rounded-md text-lg">Classes</a>
                 <div class="border-t border-navy-light pt-4">
                     <span class="text-white block px-4 py-2 text-lg">{{ current_user.username }}</span>
                     <a href="{{ url_for('auth.logout') }}" class="text-red-300 hover:text-red-400 block px-4 py-2 text-lg">Logout</a>
