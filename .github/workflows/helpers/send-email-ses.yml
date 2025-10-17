@@ -1,0 +1,80 @@
+name: Send Email via AWS SES
+
+on:
+  workflow_call:
+    inputs:
+      subject:
+        required: true
+        type: string
+      body:
+        required: true
+        type: string
+      priority:
+        required: true
+        type: string
+        default: 'normal'
+      recipients:
+        required: false
+        type: string
+        description: 'Comma-separated email addreesses (overrides default)'
+    secrets:
+      AWS_ROLE_ARN:
+        required: true
+      EMAIL_RECIPIENTS:
+        required: true
+      EMAIL_FROM:
+        required: true
+
+jobs:
+  send-email:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+   
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with: 
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: eu-west-2
+
+      - name: Prepare Recipients
+        id: recipients
+        run: |
+          if [-n "${{ inputs.recipients }}"]; then
+            RECIPIENTS="${{ inputs.recipients }}"
+          else
+            RECIPIENTS="${{ secrets.EMAIL_RECIPIENTS }}"
+          fi
+          echo "recipients=$RECIPIENTS" >> $GITHUB_OUTPUT
+
+      - name: Send Email via SES
+        run: |
+          # Convert comma-separated email to space-separated
+          RECIPENTS=$(echo "${{ steps.recipients.outputs.recipients }}" | tr ',' ' ')
+
+          # Determine priority header
+          PRIORITY_HEADER=""
+          case "${{ inputs.priority }}" in
+            high)
+              PRIORITY_HEADER="X-Priority: 1 (Highest)\nImportance: High"
+              ;;
+            urgent)
+              PRIORITY_HEADER="X-Priority: 1 (Highest)\nImportance: High\nX-MSMail-Priority: High"
+              ;;
+          esac
+
+          # Send email to each recipient
+          for EMAIL in $RECIPIENTS; do
+            aws ses send-email \
+              --from "${{ secrets.EMAIL_FROM }}" \
+              --destination "ToAddresses=$EMAIL" \
+              --message \
+                "Subject={Data='${{ inputs.subject }}', Charset=utf8}, \
+                Body={Html={Data='${{ inputs.body }}', Charset=utf8}}" \
+              --region eu-west-2
+          done
+
+          echo "✅ Email sent to: $RECIPENTS"
+         
