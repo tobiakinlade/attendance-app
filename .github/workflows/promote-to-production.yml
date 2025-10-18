@@ -1,0 +1,212 @@
+send-deployment-notification:
+    needs: deploy-production
+    if: success()
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: eu-west-2
+
+      - name: Prepare Email Body
+        id: email
+        run: |
+          cat > email_body.html << 'EOF'
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <style>
+              body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+              .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+              .header { background: #4CAF50; color: white; padding: 20px; border-radius: 5px; text-align: center; }
+              .content { background: #f9f9f9; padding: 20px; margin-top: 20px; border-radius: 5px; }
+              .detail-row { display: flex; padding: 10px 0; border-bottom: 1px solid #ddd; }
+              .detail-label { font-weight: bold; width: 40%; }
+              .detail-value { width: 60%; }
+              .success-badge { background: #4CAF50; color: white; padding: 5px 15px; border-radius: 20px; display: inline-block; }
+              .button { background: #2196F3; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; display: inline-block; margin-top: 15px; }
+              .info { color: #666; font-size: 14px; margin-top: 20px; padding-top: 20px; border-top: 1px solid #ddd; }
+            </style>
+          </head>
+          <body>
+            <div class="container">
+              <div class="header">
+                <h1>🚀 Production Deployment Successful</h1>
+                <p class="success-badge">LIVE</p>
+              </div>
+              
+              <div class="content">
+                <h2>Deployment Details</h2>
+                
+                <div class="detail-row">
+                  <div class="detail-label">Version:</div>
+                  <div class="detail-value">${{ needs.deploy-production.outputs.version }}</div>
+                </div>
+                
+                <div class="detail-row">
+                  <div class="detail-label">Commit SHA:</div>
+                  <div class="detail-value">${{ needs.deploy-production.outputs.commit_sha }}</div>
+                </div>
+                
+                <div class="detail-row">
+                  <div class="detail-label">Image:</div>
+                  <div class="detail-value">${{ needs.deploy-production.outputs.image }}</div>
+                </div>
+                
+                <div class="detail-row">
+                  <div class="detail-label">Deployed By:</div>
+                  <div class="detail-value">${{ github.actor }}</div>
+                </div>
+                
+                <div class="detail-row">
+                  <div class="detail-label">Deployed At:</div>
+                  <div class="detail-value">$(date -u '+%Y-%m-%d %H:%M:%S UTC')</div>
+                </div>
+                
+                <div class="detail-row">
+                  <div class="detail-label">Environment:</div>
+                  <div class="detail-value">Production</div>
+                </div>
+                
+                <div class="detail-row">
+                  <div class="detail-label">Cluster:</div>
+                  <div class="detail-value">attendance-app-prod-cluster</div>
+                </div>
+                
+                <div class="detail-row">
+                  <div class="detail-label">Region:</div>
+                  <div class="detail-value">eu-west-2</div>
+                </div>
+                
+                <h3>Quick Links</h3>
+                <a href="https://app.tech-with-tobi.com" class="button">View Application</a>
+                <a href="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" class="button">View Deployment</a>
+                <a href="https://github.com/${{ github.repository }}/releases" class="button">View Releases</a>
+                <a href="https://eu-west-2.console.aws.amazon.com/ecs/home?region=eu-west-2#/clusters/attendance-app-prod-cluster/services" class="button">View ECS Console</a>
+                
+                <h3>Post-Deployment Checklist</h3>
+                <ul>
+                  <li>✅ Monitor application health for 15 minutes</li>
+                  <li>✅ Check CloudWatch metrics and logs</li>
+                  <li>✅ Verify critical user flows</li>
+                  <li>✅ Review error rates and latency</li>
+                  <li>✅ Notify stakeholders of completion</li>
+                </ul>
+              </div>
+              
+              <div class="info">
+                <p>This is an automated notification from the DevOps pipeline.</p>
+                <p>If you notice any issues, please initiate a rollback immediately.</p>
+              </div>
+            </div>
+          </body>
+          </html>
+          EOF
+          
+          EMAIL_BODY=$(cat email_body.html | tr -d '\n' | sed 's/"/\\"/g')
+          echo "body=$EMAIL_BODY" >> $GITHUB_OUTPUT
+
+      - name: Send Success Email to Team
+        run: |
+          RECIPIENTS="${{ secrets.EMAIL_RECIPIENTS }}"
+          
+          for EMAIL in $(echo $RECIPIENTS | tr ',' ' '); do
+            aws ses send-email \
+              --from "${{ secrets.EMAIL_FROM }}" \
+              --destination "ToAddresses=$EMAIL" \
+              --message \
+                "Subject={Data='🚀 Production Deployment Successful - v${{ needs.deploy-production.outputs.version }}',Charset=utf8},\
+                Body={Html={Data='${{ steps.email.outputs.body }}',Charset=utf8}}" \
+              --region eu-west-2
+          done
+
+  send-failure-notification:
+    needs: deploy-production
+    if: failure()
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: eu-west-2
+
+      - name: Send Failure Email
+        run: |
+          cat > email_body.html << 'EOF'
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <style>
+              body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+              .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+              .header { background: #f44336; color: white; padding: 20px; border-radius: 5px; text-align: center; }
+              .content { background: #f9f9f9; padding: 20px; margin-top: 20px; border-radius: 5px; }
+              .alert { background: #ffebee; border-left: 4px solid #f44336; padding: 15px; margin: 15px 0; }
+              .button { background: #f44336; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; display: inline-block; margin-top: 15px; }
+            </style>
+          </head>
+          <body>
+            <div class="container">
+              <div class="header">
+                <h1>❌ Production Deployment Failed</h1>
+              </div>
+              
+              <div class="content">
+                <div class="alert">
+                  <strong>⚠️ URGENT: Deployment Failure</strong><br>
+                  The production deployment has failed. Immediate action required.
+                </div>
+                
+                <h3>Deployment Details:</h3>
+                <ul>
+                  <li><strong>Tag:</strong> ${{ github.ref_name }}</li>
+                  <li><strong>Attempted By:</strong> ${{ github.actor }}</li>
+                  <li><strong>Time:</strong> $(date -u '+%Y-%m-%d %H:%M:%S UTC')</li>
+                </ul>
+                
+                <h3>Immediate Actions:</h3>
+                <ol>
+                  <li>Review the workflow logs immediately</li>
+                  <li>Check if previous version is still running</li>
+                  <li>Assess impact on production users</li>
+                  <li>Initiate rollback if necessary</li>
+                  <li>Update incident channel</li>
+                </ol>
+                
+                <a href="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" class="button">View Failure Details</a>
+                <a href="https://github.com/${{ github.repository }}/actions/workflows/rollback.yml" class="button">Initiate Rollback</a>
+              </div>
+            </div>
+          </body>
+          </html>
+          EOF
+          
+          EMAIL_BODY=$(cat email_body.html | tr -d '\n' | sed 's/"/\\"/g')
+          
+          RECIPIENTS="${{ secrets.EMAIL_RECIPIENTS_URGENT }}"
+          
+          for EMAIL in $(echo $RECIPIENTS | tr ',' ' '); do
+            aws ses send-email \
+              --from "${{ secrets.EMAIL_FROM }}" \
+              --destination "ToAddresses=$EMAIL" \
+              --message \
+                "Subject={Data='🚨 URGENT: Production Deployment Failed - Immediate Action Required',Charset=utf8},\
+                Body={Html={Data='$EMAIL_BODY',Charset=utf8}}" \
+              --region eu-west-2
+          done
