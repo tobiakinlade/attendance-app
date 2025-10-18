@@ -182,7 +182,7 @@ jobs:
           BODY=$(cat health_report.html | tr -d '\n')
           
           aws ses send-email \
-            --from "Infrastructure Monitor <noreply@tech-with-tobi.com>" \
+            --from "Infrastructure Monitor <tobi.akinlade.co@gmail.com>" \
             --destination "ToAddresses=${{ secrets.EMAIL_RECIPIENTS }}" \
             --message "Subject={Data='⚠️ Infrastructure Health Alert',Charset=utf8},Body={Html={Data='$BODY',Charset=utf8}}" \
             --region ${{ env.AWS_REGION }}
