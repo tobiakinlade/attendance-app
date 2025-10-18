@@ -69,18 +69,6 @@ jobs:
             echo "🚨 Drift detected!"
           fi
 
-      - name: Get Last Drift Check
-        id: last_check
-        if: steps.drift.outputs.drift_detected == 'true'
-        run: |
-          LAST_RUN=$(gh api \
-            -H "Accept: application/vnd.github+json" \
-            /repos/${{ github.repository }}/actions/workflows/terraform-drift-detection.yml/runs \
-            --jq '.workflow_runs[1].created_at // "first run"' 2>/dev/null || echo "unknown")
-          echo "last_check=$LAST_RUN" >> $GITHUB_OUTPUT
-        env:
-          GH_TOKEN: ${{ github.token }}
-
       - name: Prepare Email Body
         if: steps.drift.outputs.drift_detected == 'true'
         id: email
@@ -88,10 +76,10 @@ jobs:
           HOUR=$(date -u '+%H:%M UTC')
           DATE=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
           
-          # Get first 100 lines of plan output
-          PLAN_OUTPUT=$(cat plan_output.txt | head -100 | sed 's/</\&lt;/g' | sed 's/>/\&gt;/g' | sed 's/"/\&quot;/g')
+          # Get first 100 lines of plan output (escaped)
+          PLAN_OUTPUT=$(cat plan_output.txt | head -100 | sed 's/</\&lt;/g' | sed 's/>/\&gt;/g')
           
-          cat > email_body.html << EOF
+          cat > email_body.html << 'EMAILEOF'
           <!DOCTYPE html>
           <html>
           <head>
@@ -108,96 +96,139 @@ jobs:
           <body>
             <div class="header">
               <h1>🚨 Infrastructure Drift Detected</h1>
-              <p style="margin: 0;">Hourly Check - $HOUR</p>
+              <p style="margin: 0;">Hourly Check - REPLACE_HOUR</p>
             </div>
             
             <div class="content">
-              <p><strong>⏰ Time:</strong> $DATE</p>
+              <p><strong>⏰ Time:</strong> REPLACE_DATE</p>
               <p><strong>🌍 Environment:</strong> dev</p>
-              <p><strong>📍 Region:</strong> ${{ env.AWS_REGION }}</p>
-              <p><strong>📦 Repository:</strong> ${{ github.repository }}</p>
+              <p><strong>📍 Region:</strong> eu-west-2</p>
               
               <div class="warning">
                 <strong>⚠️ Action Required</strong><br>
-                Infrastructure has diverged from Terraform code. Possible causes:
-                <ul>
-                  <li>Manual changes via AWS Console</li>
-                  <li>Emergency fixes not committed to code</li>
-                  <li>Changes by other automation tools</li>
-                  <li>AWS resource updates</li>
-                </ul>
+                Infrastructure has diverged from Terraform code.
               </div>
               
               <h3>Changes Detected:</h3>
-              <div class="code-block">$PLAN_OUTPUT</div>
+              <div class="code-block">REPLACE_PLAN_OUTPUT</div>
               
               <h3>Next Steps:</h3>
               <ol>
                 <li>Review changes above</li>
-                <li>Determine if drift is expected or problematic</li>
                 <li>Update Terraform code or apply fix</li>
-                <li>Document resolution in GitHub issue</li>
+                <li>Document resolution</li>
               </ol>
               
               <div style="text-align: center; margin-top: 20px;">
-                <a href="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" class="button">View Details</a>
-                <a href="https://github.com/${{ github.repository }}/actions/workflows/terraform-apply.yml" class="button">Apply Fix</a>
+                <a href="REPLACE_RUN_URL" class="button">View Details</a>
               </div>
             </div>
             
             <div class="info">
-              <p>🤖 Automated hourly drift detection from GitHub Actions</p>
-              <p>📧 Sent to: DevOps Team</p>
+              <p>🤖 Automated drift detection from GitHub Actions</p>
             </div>
           </body>
           </html>
-          EOF
+          EMAILEOF
           
-          # Read and escape for output
-          BODY=$(cat email_body.html | tr -d '\n' | sed 's/"/\\"/g')
-          echo "body=$BODY" >> $GITHUB_OUTPUT
+          # Replace placeholders
+          sed -i "s|REPLACE_HOUR|$HOUR|g" email_body.html
+          sed -i "s|REPLACE_DATE|$DATE|g" email_body.html
+          sed -i "s|REPLACE_RUN_URL|https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|g" email_body.html
+          
+          # Escape plan output and insert
+          echo "$PLAN_OUTPUT" > plan_escaped.txt
+          sed -i "/REPLACE_PLAN_OUTPUT/r plan_escaped.txt" email_body.html
+          sed -i "s|REPLACE_PLAN_OUTPUT||g" email_body.html
+          
+          # Output for next step
+          BODY=$(cat email_body.html | tr -d '\n')
+          echo "body<<EOF" >> $GITHUB_OUTPUT
+          echo "$BODY" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
 
-      - name: Check for Existing Open Drift Issue
+      - name: Create or Update GitHub Issue
         if: steps.drift.outputs.drift_detected == 'true'
-        id: existing_issue
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const issues = await github.rest.issues.listForRepo({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              state: 'open',
-              labels: 'drift-detection'
-            });
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TODAY=$(date -u '+%Y-%m-%d')
+          
+          # Check if issue exists
+          EXISTING_ISSUE=$(gh issue list \
+            --label drift-detection \
+            --state open \
+            --search "Infrastructure Drift Detected - $TODAY" \
+            --json number \
+            --jq '.[0].number // empty')
+          
+          if [ -n "$EXISTING_ISSUE" ]; then
+            echo "📝 Updating existing issue #$EXISTING_ISSUE"
             
-            const today = new Date().toISOString().split('T')[0];
-            const existingIssue = issues.data.find(issue => 
-              issue.title.includes('Infrastructure Drift Detected') && 
-              issue.title.includes(today)
-            );
+            gh issue comment $EXISTING_ISSUE --body "### 🔄 Drift Still Present
             
-            if (existingIssue) {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: existingIssue.number,
-                body: `### 🔄 Drift Still Present - ${new Date().toUTCString()}\n\nHourly check at ${new Date().getHours()}:00 UTC confirms drift is still present.\n\n[View Latest Run](https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})`
-              });
-              return existingIssue.number;
-            }
-            return null;
+            **Check Time:** $(date -u)
+            
+            [View Latest Run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+            
+          else
+            echo "📝 Creating new issue"
+            
+            PLAN_SNIPPET=$(cat plan_output.txt | head -50)
+            
+            gh issue create \
+              --title "🚨 Infrastructure Drift Detected - $TODAY" \
+              --label "infrastructure,drift-detection,needs-review" \
+              --body "## Infrastructure Drift Detected
+            
+            **Detected:** $(date -u)
+            **Environment:** dev
+            **Region:** ${{ env.AWS_REGION }}
+            
+            ### Changes Detected:
+            \`\`\`
+            $PLAN_SNIPPET
+            \`\`\`
+            
+            ### Next Steps:
+            1. Review changes
+            2. Update Terraform code or apply fix
+            3. Close issue once resolved
+            
+            [View Run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+          fi
 
-      - name: Create New GitHub Issue for Drift
-        if: steps.drift.outputs.drift_detected == 'true' && steps.existing_issue.outputs.result == 'null'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require('fs');
-            const planOutput = fs.readFileSync('terraform/plan_output.txt', 'utf8').substring(0, 5000);
+      - name: Send Drift Email Notification
+        if: steps.drift.outputs.drift_detected == 'true'
+        run: |
+          RECIPIENTS="${{ secrets.EMAIL_RECIPIENTS }}"
+          BODY='${{ steps.email.outputs.body }}'
+          
+          for EMAIL in $(echo $RECIPIENTS | tr ',' ' '); do
+            EMAIL=$(echo "$EMAIL" | xargs)
+            echo "📧 Sending to: $EMAIL"
             
-            await github.rest.issues.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              title: '🚨 Infrastructure Drift Detected - ' + new Date().toISOString().split('T')[0],
-              body: `## Infrastructure Drift Detected
-              
+            aws ses send-email \
+              --from "noreply@tech-with-tobi.com" \
+              --destination "ToAddresses=$EMAIL" \
+              --message "Subject={Data='🚨 Infrastructure Drift - $(date -u +%H:%M) UTC',Charset=utf8},Body={Html={Data='$BODY',Charset=utf8}}" \
+              --region ${{ env.AWS_REGION }}
+            
+            sleep 1
+          done
+          
+          echo "✅ Notifications sent"
+
+      - name: Summary
+        run: |
+          if [ "${{ steps.drift.outputs.drift_detected }}" == "true" ]; then
+            echo "### 🚨 Drift Detected!" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Time:** $(date -u)" >> $GITHUB_STEP_SUMMARY
+            echo "**Notifications:** ✅ Sent" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### ✅ No Drift Detected" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Time:** $(date -u)" >> $GITHUB_STEP_SUMMARY
+            echo "**Next check:** $(date -u -d '+1 hour' '+%H:00 UTC')" >> $GITHUB_STEP_SUMMARY
+          fi
