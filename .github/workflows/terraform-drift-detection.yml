@@ -189,7 +189,7 @@ jobs:
             BODY_JSON=$(jq -Rs . < email.html)
             
             aws ses send-email \
-              --from "noreply@tech-with-tobi.com" \
+              --from "tobi.akinlade.co@gmail.com" \
               --destination "ToAddresses=$EMAIL" \
               --message "{\"Subject\":{\"Data\":\"🚨 Infrastructure Drift - $(date -u +%H:%M) UTC\",\"Charset\":\"utf8\"},\"Body\":{\"Html\":{\"Data\":$BODY_JSON,\"Charset\":\"utf8\"}}}" \
               --region ${{ env.AWS_REGION }}
