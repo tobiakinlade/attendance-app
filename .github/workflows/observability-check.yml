@@ -1,0 +1,204 @@
+name: Infrastructure Health Check
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'  # Every 15 minutes
+  workflow_dispatch:
+
+env:
+  AWS_REGION: eu-west-2
+  CLUSTER_NAME: attendance-app-dev-cluster
+  SERVICE_NAME: attendance-app-dev-service
+
+jobs:
+  health-check:
+    name: Check Infrastructure Health
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Check ECS Service Health
+        id: ecs
+        run: |
+          SERVICE_INFO=$(aws ecs describe-services \
+            --cluster $CLUSTER_NAME \
+            --services $SERVICE_NAME \
+            --query 'services[0]')
+          
+          RUNNING=$(echo $SERVICE_INFO | jq -r '.runningCount')
+          DESIRED=$(echo $SERVICE_INFO | jq -r '.desiredCount')
+          PENDING=$(echo $SERVICE_INFO | jq -r '.pendingCount')
+          
+          echo "running=$RUNNING" >> $GITHUB_OUTPUT
+          echo "desired=$DESIRED" >> $GITHUB_OUTPUT
+          echo "pending=$PENDING" >> $GITHUB_OUTPUT
+          
+          if [ "$RUNNING" -eq "$DESIRED" ] && [ "$PENDING" -eq "0" ]; then
+            echo "status=healthy" >> $GITHUB_OUTPUT
+          else
+            echo "status=degraded" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Check ALB Target Health
+        id: alb
+        run: |
+          TG_ARN=$(aws elbv2 describe-target-groups \
+            --names attendance-app-dev-tg \
+            --query 'TargetGroups[0].TargetGroupArn' \
+            --output text)
+          
+          HEALTH=$(aws elbv2 describe-target-health \
+            --target-group-arn $TG_ARN \
+            --query 'TargetHealthDescriptions[*].TargetHealth.State' \
+            --output json)
+          
+          HEALTHY=$(echo $HEALTH | jq -r '. | map(select(. == "healthy")) | length')
+          TOTAL=$(echo $HEALTH | jq -r '. | length')
+          
+          echo "healthy=$HEALTHY" >> $GITHUB_OUTPUT
+          echo "total=$TOTAL" >> $GITHUB_OUTPUT
+          
+          if [ "$HEALTHY" -eq "$TOTAL" ] && [ "$TOTAL" -gt "0" ]; then
+            echo "status=healthy" >> $GITHUB_OUTPUT
+          else
+            echo "status=unhealthy" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Check RDS Health
+        id: rds
+        run: |
+          RDS_STATUS=$(aws rds describe-db-instances \
+            --db-instance-identifier attendance-app-dev-db \
+            --query 'DBInstances[0].DBInstanceStatus' \
+            --output text)
+          
+          echo "status=$RDS_STATUS" >> $GITHUB_OUTPUT
+          
+          if [ "$RDS_STATUS" == "available" ]; then
+            echo "healthy=true" >> $GITHUB_OUTPUT
+          else
+            echo "healthy=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Get CloudWatch Metrics
+        id: metrics
+        run: |
+          # Get last 5 minutes of CPU usage
+          END_TIME=$(date -u +%Y-%m-%dT%H:%M:%S)
+          START_TIME=$(date -u -d '5 minutes ago' +%Y-%m-%dT%H:%M:%S)
+          
+          CPU=$(aws cloudwatch get-metric-statistics \
+            --namespace AWS/ECS \
+            --metric-name CPUUtilization \
+            --dimensions Name=ServiceName,Value=$SERVICE_NAME Name=ClusterName,Value=$CLUSTER_NAME \
+            --start-time $START_TIME \
+            --end-time $END_TIME \
+            --period 300 \
+            --statistics Average \
+            --query 'Datapoints[0].Average' \
+            --output text)
+          
+          MEMORY=$(aws cloudwatch get-metric-statistics \
+            --namespace AWS/ECS \
+            --metric-name MemoryUtilization \
+            --dimensions Name=ServiceName,Value=$SERVICE_NAME Name=ClusterName,Value=$CLUSTER_NAME \
+            --start-time $START_TIME \
+            --end-time $END_TIME \
+            --period 300 \
+            --statistics Average \
+            --query 'Datapoints[0].Average' \
+            --output text)
+          
+          echo "cpu=${CPU:-0}" >> $GITHUB_OUTPUT
+          echo "memory=${MEMORY:-0}" >> $GITHUB_OUTPUT
+
+      - name: Create Health Report
+        run: |
+          cat > health_report.html << EOF
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <style>
+              body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; }
+              .header { background: #4CAF50; color: white; padding: 20px; text-align: center; }
+              .status { display: flex; justify-content: space-around; margin: 20px 0; }
+              .status-card { background: #f9f9f9; padding: 20px; border-radius: 8px; flex: 1; margin: 0 10px; text-align: center; }
+              .healthy { border-left: 4px solid #4CAF50; }
+              .unhealthy { border-left: 4px solid #f44336; }
+              .metric { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #ddd; }
+            </style>
+          </head>
+          <body>
+            <div class="header">
+              <h1>🔍 Infrastructure Health Report</h1>
+              <p>$(date -u '+%Y-%m-%d %H:%M:%S UTC')</p>
+            </div>
+            
+            <div class="status">
+              <div class="status-card ${{ steps.ecs.outputs.status == 'healthy' && 'healthy' || 'unhealthy' }}">
+                <h3>ECS Service</h3>
+                <p><strong>Status:</strong> ${{ steps.ecs.outputs.status }}</p>
+                <p>Running: ${{ steps.ecs.outputs.running }}/${{ steps.ecs.outputs.desired }}</p>
+              </div>
+              
+              <div class="status-card ${{ steps.alb.outputs.status == 'healthy' && 'healthy' || 'unhealthy' }}">
+                <h3>Load Balancer</h3>
+                <p><strong>Status:</strong> ${{ steps.alb.outputs.status }}</p>
+                <p>Healthy Targets: ${{ steps.alb.outputs.healthy }}/${{ steps.alb.outputs.total }}</p>
+              </div>
+              
+              <div class="status-card ${{ steps.rds.outputs.healthy == 'true' && 'healthy' || 'unhealthy' }}">
+                <h3>RDS Database</h3>
+                <p><strong>Status:</strong> ${{ steps.rds.outputs.status }}</p>
+              </div>
+            </div>
+            
+            <h2>Metrics</h2>
+            <div class="metric">
+              <strong>CPU Utilization:</strong>
+              <span>${{ steps.metrics.outputs.cpu }}%</span>
+            </div>
+            <div class="metric">
+              <strong>Memory Utilization:</strong>
+              <span>${{ steps.metrics.outputs.memory }}%</span>
+            </div>
+          </body>
+          </html>
+          EOF
+          
+          cat health_report.html
+
+      - name: Send Alert if Unhealthy
+        if: steps.ecs.outputs.status != 'healthy' || steps.alb.outputs.status != 'healthy' || steps.rds.outputs.healthy != 'true'
+        run: |
+          BODY=$(cat health_report.html | tr -d '\n')
+          
+          aws ses send-email \
+            --from "Infrastructure Monitor <noreply@tech-with-tobi.com>" \
+            --destination "ToAddresses=${{ secrets.EMAIL_RECIPIENTS }}" \
+            --message "Subject={Data='⚠️ Infrastructure Health Alert',Charset=utf8},Body={Html={Data='$BODY',Charset=utf8}}" \
+            --region ${{ env.AWS_REGION }}
+
+      - name: Summary
+        run: |
+          echo "### 🔍 Health Check Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Time:** $(date -u)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Component | Status | Details |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|--------|---------|" >> $GITHUB_STEP_SUMMARY
+          echo "| ECS Service | ${{ steps.ecs.outputs.status }} | ${{ steps.ecs.outputs.running }}/${{ steps.ecs.outputs.desired }} tasks |" >> $GITHUB_STEP_SUMMARY
+          echo "| Load Balancer | ${{ steps.alb.outputs.status }} | ${{ steps.alb.outputs.healthy }}/${{ steps.alb.outputs.total }} healthy |" >> $GITHUB_STEP_SUMMARY
+          echo "| RDS Database | ${{ steps.rds.outputs.status }} | - |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Metrics:**" >> $GITHUB_STEP_SUMMARY
+          echo "- CPU: ${{ steps.metrics.outputs.cpu }}%" >> $GITHUB_STEP_SUMMARY
+          echo "- Memory: ${{ steps.metrics.outputs.memory }}%" >> $GITHUB_STEP_SUMMARY
