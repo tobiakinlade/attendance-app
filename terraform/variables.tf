@@ -94,8 +94,9 @@ variable "create_route53_record" {
   default     = false
 }
 
-variable "alarm_email" {
-  description = "Email address for CloudWatch alarms"
+
+variable "alert_email" {
+  description = "Email address for CloudWatch alerts"
   type        = string
   default     = "tobi.akinlade@outlook.com"
 }
