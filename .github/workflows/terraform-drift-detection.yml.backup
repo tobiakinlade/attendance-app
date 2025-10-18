@@ -195,8 +195,7 @@ jobs:
             2. Update Terraform code or apply fix
             3. Close issue once resolved
             
-            [View Run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})" \
-            --json number --jq '.number')
+            [View Run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
           fi
 
       - name: Send Drift Email Notification
