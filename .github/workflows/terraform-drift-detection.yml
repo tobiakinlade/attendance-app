@@ -36,6 +36,7 @@ jobs:
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false  # ← CRITICAL: Disable wrapper to preserve exit codes
 
       - name: Terraform Init
         run: |
@@ -64,7 +65,7 @@ jobs:
           echo "📊 Terraform plan completed"
           echo "   Exit code: $EXIT_CODE"
           echo "   0 = No changes (no drift)"
-          echo "   1 = Error occured"
+          echo "   1 = Error occurred"
           echo "   2 = Changes detected (DRIFT!)"
 
           echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
@@ -73,7 +74,10 @@ jobs:
       - name: Check for Drift
         id: drift
         run: |
-          if [ "${{ steps.plan.outputs.exit_code }}" == "2" ]; then
+          EXIT_CODE="${{ steps.plan.outputs.exit_code }}"
+          echo "Checking exit code: $EXIT_CODE"
+          
+          if [ "$EXIT_CODE" == "2" ]; then
             echo "drift_detected=true" >> $GITHUB_OUTPUT
             echo "🚨 Drift detected!"
           else
