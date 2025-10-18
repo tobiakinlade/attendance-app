@@ -49,7 +49,6 @@ jobs:
         run: |
           set +e
           terraform plan -input=false -detailed-exitcode -no-color \
-            -lock-timeout=60s \
             -var="environment=dev" \
             -var="project_name=attendance-app" \
             -var="domain_name=tech-with-tobi.com" \
