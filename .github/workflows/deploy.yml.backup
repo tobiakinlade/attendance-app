@@ -8,6 +8,7 @@ on:
       - 'app/**'
       - 'Dockerfile'
       - 'requirements.txt'
+  
   workflow_dispatch:
 
 env:
@@ -48,17 +49,9 @@ jobs:
     outputs:
       image: ${{ steps.build.outputs.image }}
       status: ${{ job.status }}
-      deployment_time: ${{ steps.timestamp.outputs.time }}
     
     steps:
       - uses: actions/checkout@v4
-      
-      - name: Record Deployment Start Time
-        id: timestamp
-        run: |
-          TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          echo "time=$TIMESTAMP" >> $GITHUB_OUTPUT
-          echo "📅 Deployment started at: $TIMESTAMP"
       
       - name: Configure AWS
         uses: aws-actions/configure-aws-credentials@v4
@@ -101,81 +94,19 @@ jobs:
           cluster: ${{ env.ECS_CLUSTER }}
           wait-for-service-stability: true
 
-      - name: Record Deployment Metrics
-        if: success()
-        run: |
-          TIMESTAMP="${{ steps.timestamp.outputs.time }}"
-          VERSION="${{ github.sha }}"
-          ACTOR="${{ github.actor }}"
-          
-          echo "📊 Recording deployment metrics in CloudWatch..."
-          
-          # 1. Record deployment count
-          aws cloudwatch put-metric-data \
-            --namespace "AttendanceApp/Deployments" \
-            --metric-name "DeploymentCount" \
-            --value 1 \
-            --dimensions Environment=dev,Status=success \
-            --timestamp $TIMESTAMP \
-            --region ${{ env.AWS_REGION }}
-          
-          # 2. Record deployment event
-          aws cloudwatch put-metric-data \
-            --namespace "AttendanceApp/Events" \
-            --metric-name "DeploymentEvent" \
-            --value 1 \
-            --dimensions Environment=dev,DeployedBy=$ACTOR,Version=$VERSION \
-            --timestamp $TIMESTAMP \
-            --region ${{ env.AWS_REGION }}
-          
-          # 3. Record deployment duration
-          START_TIME=$(date -d "$TIMESTAMP" +%s)
-          END_TIME=$(date +%s)
-          DURATION=$((END_TIME - START_TIME))
-          
-          aws cloudwatch put-metric-data \
-            --namespace "AttendanceApp/Deployments" \
-            --metric-name "DeploymentDuration" \
-            --value $DURATION \
-            --unit Seconds \
-            --dimensions Environment=dev \
-            --timestamp $(date -u +%Y-%m-%dT%H:%M:%SZ) \
-            --region ${{ env.AWS_REGION }}
-          
-          echo "✅ Deployment metrics recorded:"
-          echo "   • Deployment count: 1"
-          echo "   • Duration: ${DURATION}s"
-          echo "   • Version: $VERSION"
-
-      - name: Record Failed Deployment
-        if: failure()
-        run: |
-          TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          
-          aws cloudwatch put-metric-data \
-            --namespace "AttendanceApp/Deployments" \
-            --metric-name "DeploymentCount" \
-            --value 1 \
-            --dimensions Environment=dev,Status=failure \
-            --timestamp $TIMESTAMP \
-            --region ${{ env.AWS_REGION }}
-          
-          echo "❌ Failed deployment recorded in CloudWatch"
-
       - name: Summary
         run: |
           echo "### ✅ Deployed Successfully!" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Image:** ${{ steps.build.outputs.image }}" >> $GITHUB_STEP_SUMMARY
           echo "**By:** ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Time:** ${{ steps.timestamp.outputs.time }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "📊 **Metrics:** Recorded in CloudWatch" >> $GITHUB_STEP_SUMMARY
 
+  # ============================================
+  # Send Email Notification
+  # ============================================
   notify:
     name: Send Email Notification
     needs: deploy
-    if: always()
+    if: always()  # Run even if deployment fails
     runs-on: ubuntu-latest
     permissions:
       id-token: write
@@ -332,10 +263,8 @@ jobs:
             echo "### ✅ Deployment & Notification Complete!" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "📧 Success email sent to: \`${{ secrets.EMAIL_RECIPIENTS }}\`" >> $GITHUB_STEP_SUMMARY
-            echo "📊 Metrics recorded in CloudWatch" >> $GITHUB_STEP_SUMMARY
           else
             echo "### ⚠️ Deployment Failed - Team Notified" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "📧 Failure email sent to: \`${{ secrets.EMAIL_RECIPIENTS }}\`" >> $GITHUB_STEP_SUMMARY
-            echo "📊 Failure metrics recorded in CloudWatch" >> $GITHUB_STEP_SUMMARY
           fi
