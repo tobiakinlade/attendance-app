@@ -7,7 +7,7 @@ resource "aws_cloudwatch_dashboard" "main" {
       # ============================================
       # ROW 1: ECS Service Health (CPU, Memory, Tasks)
       # ============================================
-      
+
       # ECS CPU & Memory Utilization
       {
         type   = "metric"
@@ -26,8 +26,8 @@ resource "aws_cloudwatch_dashboard" "main" {
           title  = "ECS Service - CPU & Memory Utilization"
           yAxis = {
             left = {
-              min = 0
-              max = 100
+              min   = 0
+              max   = 100
               label = "Percentage"
             }
           }
@@ -63,7 +63,7 @@ resource "aws_cloudwatch_dashboard" "main" {
           title  = "ECS Task Count"
           yAxis = {
             left = {
-              min = 0
+              min   = 0
               label = "Count"
             }
           }
@@ -121,7 +121,7 @@ resource "aws_cloudwatch_dashboard" "main" {
           title  = "ALB Response Time (seconds)"
           yAxis = {
             left = {
-              min = 0
+              min   = 0
               label = "Seconds"
             }
           }
@@ -156,7 +156,7 @@ resource "aws_cloudwatch_dashboard" "main" {
           title  = "Target Health Status"
           yAxis = {
             left = {
-              min = 0
+              min   = 0
               label = "Count"
             }
           }
@@ -212,7 +212,7 @@ resource "aws_cloudwatch_dashboard" "main" {
           title  = "ALB Errors & Rejected Connections"
           yAxis = {
             left = {
-              min = 0
+              min   = 0
               label = "Count"
             }
           }
@@ -223,25 +223,29 @@ resource "aws_cloudwatch_dashboard" "main" {
       # ROW 4: RDS Database Metrics
       # ============================================
 
+      # ============================================
+      # ROW 6: RDS Database Metrics
+      # ============================================
+
       # RDS CPU Utilization
       {
         type   = "metric"
         x      = 0
-        y      = 18
+        y      = 30
         width  = 8
         height = 6
         properties = {
           metrics = [
-            ["AWS/RDS", "CPUUtilization", "DBInstanceIdentifier", aws_db_instance.main.id, { stat = "Average", label = "CPU %", color = "#1f77b4" }]
+            ["AWS/RDS", "CPUUtilization", "DBInstanceIdentifier", "${var.project_name}-${var.environment}-db", { stat = "Average", label = "CPU %", color = "#1f77b4" }]
           ]
           period = 300
           stat   = "Average"
           region = var.aws_region
-          title  = "RDS CPU Utilization"
+          title  = "💾 RDS CPU Utilization"
           yAxis = {
             left = {
-              min = 0
-              max = 100
+              min   = 0
+              max   = 100
               label = "Percentage"
             }
           }
@@ -262,20 +266,20 @@ resource "aws_cloudwatch_dashboard" "main" {
       {
         type   = "metric"
         x      = 8
-        y      = 18
+        y      = 30
         width  = 8
         height = 6
         properties = {
           metrics = [
-            ["AWS/RDS", "DatabaseConnections", "DBInstanceIdentifier", aws_db_instance.main.id, { stat = "Average", label = "Active Connections", color = "#2ca02c" }]
+            ["AWS/RDS", "DatabaseConnections", "DBInstanceIdentifier", "${var.project_name}-${var.environment}-db", { stat = "Average", label = "Active Connections", color = "#2ca02c" }]
           ]
           period = 300
           stat   = "Average"
           region = var.aws_region
-          title  = "RDS Database Connections"
+          title  = "🔌 RDS Database Connections"
           yAxis = {
             left = {
-              min = 0
+              min   = 0
               label = "Count"
             }
           }
@@ -286,20 +290,20 @@ resource "aws_cloudwatch_dashboard" "main" {
       {
         type   = "metric"
         x      = 16
-        y      = 18
+        y      = 30
         width  = 8
         height = 6
         properties = {
           metrics = [
-            ["AWS/RDS", "FreeStorageSpace", "DBInstanceIdentifier", aws_db_instance.main.id, { stat = "Average", label = "Free Storage" }]
+            ["AWS/RDS", "FreeStorageSpace", "DBInstanceIdentifier", "${var.project_name}-${var.environment}-db", { stat = "Average", label = "Free Storage" }]
           ]
           period = 300
           stat   = "Average"
           region = var.aws_region
-          title  = "RDS Free Storage Space"
+          title  = "💿 RDS Free Storage Space"
           yAxis = {
             left = {
-              min = 0
+              min   = 0
               label = "Bytes"
             }
           }
@@ -307,28 +311,76 @@ resource "aws_cloudwatch_dashboard" "main" {
       },
 
       # ============================================
-      # ROW 5: Additional RDS Metrics
+      # ROW 7: Additional RDS Metrics
       # ============================================
 
       # RDS Read/Write Latency
       {
         type   = "metric"
         x      = 0
-        y      = 24
+        y      = 36
         width  = 12
         height = 6
         properties = {
           metrics = [
-            ["AWS/RDS", "ReadLatency", "DBInstanceIdentifier", aws_db_instance.main.id, { stat = "Average", label = "Read Latency", color = "#1f77b4" }],
-            [".", "WriteLatency", ".", ".", { stat = "Average", label = "Write Latency", color = "#ff7f0e" }]
+            ["AWS/RDS", "ReadLatency", "DBInstanceIdentifier", "${var.project_name}-${var.environment}-db", { stat = "Average", label = "Read Latency", color = "#1f77b4" }],
+            [".", "WriteLatency", ".", "${var.project_name}-${var.environment}-db", { stat = "Average", label = "Write Latency", color = "#ff7f0e" }]
           ]
           period = 300
           stat   = "Average"
           region = var.aws_region
-          title  = "RDS Read/Write Latency"
+          title  = "⏱️ RDS Read/Write Latency"
           yAxis = {
             left = {
               label = "Seconds"
+            }
+          }
+        }
+      },
+
+      # RDS IOPS
+      {
+        type   = "metric"
+        x      = 12
+        y      = 36
+        width  = 12
+        height = 6
+        properties = {
+          metrics = [
+            ["AWS/RDS", "ReadIOPS", "DBInstanceIdentifier", "${var.project_name}-${var.environment}-db", { stat = "Average", label = "Read IOPS", color = "#2ca02c" }],
+            [".", "WriteIOPS", ".", "${var.project_name}-${var.environment}-db", { stat = "Average", label = "Write IOPS", color = "#d62728" }]
+          ]
+          period = 300
+          stat   = "Average"
+          region = var.aws_region
+          title  = "📈 RDS IOPS (Input/Output Operations Per Second)"
+          yAxis = {
+            left = {
+              min   = 0
+              label = "Count/Second"
+            }
+          }
+        }
+      },
+      # RDS Network Throughput
+      {
+        type   = "metric"
+        x      = 12
+        y      = 42
+        width  = 12
+        height = 6
+        properties = {
+          metrics = [
+            ["AWS/RDS", "NetworkReceiveThroughput", "DBInstanceIdentifier", "${var.project_name}-${var.environment}-db", { stat = "Average", label = "Network In", color = "#1f77b4" }],
+            [".", "NetworkTransmitThroughput", ".", "${var.project_name}-${var.environment}-db", { stat = "Average", label = "Network Out", color = "#ff7f0e" }]
+          ]
+          period = 300
+          stat   = "Average"
+          region = var.aws_region
+          title  = "🌐 RDS Network Throughput"
+          yAxis = {
+            left = {
+              label = "Bytes/Second"
             }
           }
         }
@@ -352,7 +404,7 @@ resource "aws_cloudwatch_dashboard" "main" {
           title  = "RDS IOPS (Input/Output Operations Per Second)"
           yAxis = {
             left = {
-              min = 0
+              min   = 0
               label = "Count/Second"
             }
           }
@@ -422,9 +474,9 @@ resource "aws_cloudwatch_dashboard" "main" {
         width  = 24
         height = 8
         properties = {
-          query   = "SOURCE '${aws_cloudwatch_log_group.ecs.name}' | fields @timestamp, @message | sort @timestamp desc | limit 100"
-          region  = var.aws_region
-          title   = "Recent Application Logs (Last 100 entries)"
+          query  = "SOURCE '${aws_cloudwatch_log_group.ecs.name}' | fields @timestamp, @message | sort @timestamp desc | limit 100"
+          region = var.aws_region
+          title  = "Recent Application Logs (Last 100 entries)"
         }
       }
     ]
