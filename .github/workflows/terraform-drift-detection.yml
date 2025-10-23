@@ -1,9 +1,9 @@
 name: Terraform Drift Detection
 
 on:
-  schedule:
-    # Runs every hour, offset by 10 minutes (at 00:10, 01:10, 02:10, etc.)
-    - cron: '10 * * * *'
+  # schedule:
+  #   # Runs every hour, offset by 10 minutes (at 00:10, 01:10, 02:10, etc.)
+  #   - cron: '10 * * * *'
   workflow_dispatch:
 
 env:
