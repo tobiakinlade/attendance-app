@@ -1,51 +1,9 @@
-# terraform/cloudwatch-alarms.tf
-
 # ============================================
-# GitOps Alarms (NEW!)
+# Core Infrastructure Health Alarms (ECS, ALB, RDS)
+# GitOps status/drift alarms removed due to external workflows
 # ============================================
 
-# 1. Deployment Failures
-resource "aws_cloudwatch_metric_alarm" "deployment_failures" {
-  alarm_name          = "${var.project_name}-${var.environment}-deployment-failures"
-  comparison_operator = "GreaterThanThreshold"
-  evaluation_periods  = 1
-  metric_name         = "DeploymentCount"
-  namespace           = "AttendanceApp/Deployments"
-  period              = 3600
-  statistic           = "Sum"
-  threshold           = 0
-  alarm_description   = "Alert when deployment fails"
-  alarm_actions       = [aws_sns_topic.alerts.arn]
-  treat_missing_data  = "notBreaching"
-
-  dimensions = {
-    Environment = var.environment
-    Status      = "failure"
-  }
-}
-
-# 2. Infrastructure Drift Detected
-resource "aws_cloudwatch_metric_alarm" "drift_detected" {
-  alarm_name          = "${var.project_name}-${var.environment}-drift-detected"
-  comparison_operator = "GreaterThanThreshold"
-  evaluation_periods  = 1
-  metric_name         = "InfrastructureDrift"
-  namespace           = "AttendanceApp/Drift"
-  period              = 3600
-  statistic           = "Sum"
-  threshold           = 0
-  alarm_description   = "Alert when infrastructure drift is detected"
-  alarm_actions       = [aws_sns_topic.alerts.arn]
-  treat_missing_data  = "notBreaching"
-
-  dimensions = {
-    Environment = var.environment
-    Type        = "terraform"
-    Status      = "detected"
-  }
-}
-
-# 3. Slow Deployments
+# 1. Slow Deployments
 resource "aws_cloudwatch_metric_alarm" "slow_deployments" {
   alarm_name          = "${var.project_name}-${var.environment}-slow-deployments"
   comparison_operator = "GreaterThanThreshold"
@@ -54,21 +12,14 @@ resource "aws_cloudwatch_metric_alarm" "slow_deployments" {
   namespace           = "AttendanceApp/Deployments"
   period              = 3600
   statistic           = "Average"
-  threshold           = 600  # 10 minutes
+  threshold           = 600 # 10 minutes
   alarm_description   = "Alert when deployments take longer than 10 minutes"
   alarm_actions       = [aws_sns_topic.alerts.arn]
   treat_missing_data  = "notBreaching"
-
-  dimensions = {
-    Environment = var.environment
-  }
+  dimensions          = { Environment = var.environment }
 }
 
-# ============================================
-# Infrastructure Alarms
-# ============================================
-
-# 4. ECS High CPU
+# 2. ECS High CPU
 resource "aws_cloudwatch_metric_alarm" "ecs_high_cpu" {
   alarm_name          = "${var.project_name}-${var.environment}-ecs-high-cpu"
   comparison_operator = "GreaterThanThreshold"
@@ -80,14 +31,13 @@ resource "aws_cloudwatch_metric_alarm" "ecs_high_cpu" {
   threshold           = 80
   alarm_description   = "ECS CPU usage is above 80%"
   alarm_actions       = [aws_sns_topic.alerts.arn]
-
   dimensions = {
     ServiceName = aws_ecs_service.main.name
     ClusterName = aws_ecs_cluster.main.name
   }
 }
 
-# 5. ECS High Memory
+# 3. ECS High Memory
 resource "aws_cloudwatch_metric_alarm" "ecs_high_memory" {
   alarm_name          = "${var.project_name}-${var.environment}-ecs-high-memory"
   comparison_operator = "GreaterThanThreshold"
@@ -99,14 +49,13 @@ resource "aws_cloudwatch_metric_alarm" "ecs_high_memory" {
   threshold           = 80
   alarm_description   = "ECS Memory usage is above 80%"
   alarm_actions       = [aws_sns_topic.alerts.arn]
-
   dimensions = {
     ServiceName = aws_ecs_service.main.name
     ClusterName = aws_ecs_cluster.main.name
   }
 }
 
-# 6. ECS No Running Tasks
+# 4. ECS No Running Tasks
 resource "aws_cloudwatch_metric_alarm" "ecs_no_tasks" {
   alarm_name          = "${var.project_name}-${var.environment}-ecs-no-tasks"
   comparison_operator = "LessThanThreshold"
@@ -118,14 +67,13 @@ resource "aws_cloudwatch_metric_alarm" "ecs_no_tasks" {
   threshold           = 1
   alarm_description   = "No ECS tasks are running"
   alarm_actions       = [aws_sns_topic.alerts.arn]
-
   dimensions = {
     ServiceName = aws_ecs_service.main.name
     ClusterName = aws_ecs_cluster.main.name
   }
 }
 
-# 7. Unhealthy Targets
+# 5. ALB Unhealthy Targets
 resource "aws_cloudwatch_metric_alarm" "unhealthy_targets" {
   alarm_name          = "${var.project_name}-${var.environment}-unhealthy-targets"
   comparison_operator = "GreaterThanThreshold"
@@ -137,14 +85,13 @@ resource "aws_cloudwatch_metric_alarm" "unhealthy_targets" {
   threshold           = 0
   alarm_description   = "ALB has unhealthy targets"
   alarm_actions       = [aws_sns_topic.alerts.arn]
-
   dimensions = {
     TargetGroup  = aws_lb_target_group.main.arn_suffix
     LoadBalancer = aws_lb.main.arn_suffix
   }
 }
 
-# 8. High Response Time
+# 6. ALB High Response Time
 resource "aws_cloudwatch_metric_alarm" "high_response_time" {
   alarm_name          = "${var.project_name}-${var.environment}-high-response-time"
   comparison_operator = "GreaterThanThreshold"
@@ -153,16 +100,13 @@ resource "aws_cloudwatch_metric_alarm" "high_response_time" {
   namespace           = "AWS/ApplicationELB"
   period              = 300
   statistic           = "Average"
-  threshold           = 2  # 2 seconds
+  threshold           = 2 # 2 seconds
   alarm_description   = "ALB response time is above 2 seconds"
   alarm_actions       = [aws_sns_topic.alerts.arn]
-
-  dimensions = {
-    LoadBalancer = aws_lb.main.arn_suffix
-  }
+  dimensions          = { LoadBalancer = aws_lb.main.arn_suffix }
 }
 
-# 9. High 5XX Errors
+# 7. ALB High 5XX Errors
 resource "aws_cloudwatch_metric_alarm" "high_5xx_errors" {
   alarm_name          = "${var.project_name}-${var.environment}-high-5xx-errors"
   comparison_operator = "GreaterThanThreshold"
@@ -175,13 +119,10 @@ resource "aws_cloudwatch_metric_alarm" "high_5xx_errors" {
   alarm_description   = "More than 10 5XX errors in 5 minutes"
   alarm_actions       = [aws_sns_topic.alerts.arn]
   treat_missing_data  = "notBreaching"
-
-  dimensions = {
-    LoadBalancer = aws_lb.main.arn_suffix
-  }
+  dimensions          = { LoadBalancer = aws_lb.main.arn_suffix }
 }
 
-# 10. High 4XX Errors
+# 8. ALB High 4XX Errors
 resource "aws_cloudwatch_metric_alarm" "high_4xx_errors" {
   alarm_name          = "${var.project_name}-${var.environment}-high-4xx-errors"
   comparison_operator = "GreaterThanThreshold"
@@ -190,17 +131,14 @@ resource "aws_cloudwatch_metric_alarm" "high_4xx_errors" {
   namespace           = "AWS/ApplicationELB"
   period              = 300
   statistic           = "Sum"
-  threshold           = 50  # More lenient for 4XX
+  threshold           = 50 # More lenient for 4XX
   alarm_description   = "More than 50 4XX errors in 5 minutes"
   alarm_actions       = [aws_sns_topic.alerts.arn]
   treat_missing_data  = "notBreaching"
-
-  dimensions = {
-    LoadBalancer = aws_lb.main.arn_suffix
-  }
+  dimensions          = { LoadBalancer = aws_lb.main.arn_suffix }
 }
 
-# 11. RDS High CPU
+# 9. RDS High CPU
 resource "aws_cloudwatch_metric_alarm" "rds_high_cpu" {
   alarm_name          = "${var.project_name}-${var.environment}-rds-high-cpu"
   comparison_operator = "GreaterThanThreshold"
@@ -212,13 +150,10 @@ resource "aws_cloudwatch_metric_alarm" "rds_high_cpu" {
   threshold           = 80
   alarm_description   = "RDS CPU usage is above 80%"
   alarm_actions       = [aws_sns_topic.alerts.arn]
-
-  dimensions = {
-    DBInstanceIdentifier = "${var.project_name}-${var.environment}-db"
-  }
+  dimensions          = { DBInstanceIdentifier = "${var.project_name}-${var.environment}-db" }
 }
 
-# 12. RDS Low Storage
+# 10. RDS Low Storage
 resource "aws_cloudwatch_metric_alarm" "rds_low_storage" {
   alarm_name          = "${var.project_name}-${var.environment}-rds-low-storage"
   comparison_operator = "LessThanThreshold"
@@ -227,16 +162,13 @@ resource "aws_cloudwatch_metric_alarm" "rds_low_storage" {
   namespace           = "AWS/RDS"
   period              = 300
   statistic           = "Average"
-  threshold           = 5000000000  # 5GB
+  threshold           = 5000000000 # 5GB
   alarm_description   = "RDS has less than 5GB free storage"
   alarm_actions       = [aws_sns_topic.alerts.arn]
-
-  dimensions = {
-    DBInstanceIdentifier = "${var.project_name}-${var.environment}-db"
-  }
+  dimensions          = { DBInstanceIdentifier = "${var.project_name}-${var.environment}-db" }
 }
 
-# 13. RDS High Connections
+# 11. RDS High Connections
 resource "aws_cloudwatch_metric_alarm" "rds_high_connections" {
   alarm_name          = "${var.project_name}-${var.environment}-rds-high-connections"
   comparison_operator = "GreaterThanThreshold"
@@ -245,30 +177,24 @@ resource "aws_cloudwatch_metric_alarm" "rds_high_connections" {
   namespace           = "AWS/RDS"
   period              = 300
   statistic           = "Average"
-  threshold           = 80  # Adjust based on your max_connections
+  threshold           = 80 # Adjust based on your max_connections
   alarm_description   = "RDS has more than 80 connections"
   alarm_actions       = [aws_sns_topic.alerts.arn]
-
-  dimensions = {
-    DBInstanceIdentifier = "${var.project_name}-${var.environment}-db"
-  }
+  dimensions          = { DBInstanceIdentifier = "${var.project_name}-${var.environment}-db" }
 }
 
 # ============================================
 # SNS Topic and Subscriptions
 # ============================================
 
-# SNS Topic for Alerts
 resource "aws_sns_topic" "alerts" {
   name = "${var.project_name}-${var.environment}-alerts"
-
   tags = {
     Name        = "${var.project_name}-${var.environment}-alerts"
     Environment = var.environment
   }
 }
 
-# SNS Email Subscription
 resource "aws_sns_topic_subscription" "email_alerts" {
   topic_arn = aws_sns_topic.alerts.arn
   protocol  = "email"
@@ -284,8 +210,6 @@ output "sns_topic_arn" {
 output "alarm_names" {
   description = "List of all CloudWatch alarm names"
   value = [
-    aws_cloudwatch_metric_alarm.deployment_failures.alarm_name,
-    aws_cloudwatch_metric_alarm.drift_detected.alarm_name,
     aws_cloudwatch_metric_alarm.slow_deployments.alarm_name,
     aws_cloudwatch_metric_alarm.ecs_high_cpu.alarm_name,
     aws_cloudwatch_metric_alarm.ecs_high_memory.alarm_name,
