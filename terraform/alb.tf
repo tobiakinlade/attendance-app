@@ -1,4 +1,7 @@
+# ============================================
 # Application Load Balancer
+# ============================================
+
 resource "aws_lb" "main" {
   name               = "${var.project_name}-${var.environment}-alb"
   internal           = false
@@ -10,11 +13,15 @@ resource "aws_lb" "main" {
   enable_http2               = true
 
   tags = {
-    Name = "${var.project_name}-${var.environment}-alb"
+    Name        = "${var.project_name}-${var.environment}-alb"
+    Environment = var.environment
   }
 }
 
+# ============================================
 # Target Group
+# ============================================
+
 resource "aws_lb_target_group" "main" {
   name        = "${var.project_name}-${var.environment}-tg"
   port        = var.container_port
@@ -29,43 +36,60 @@ resource "aws_lb_target_group" "main" {
     protocol            = "HTTP"
     healthy_threshold   = 2
     unhealthy_threshold = 3
-    timeout             = 5
+    timeout             = 10  # ✅ Increased from 5 to 10 seconds
     interval            = 30
-    matcher             = "200-299"
+    matcher             = "200,302"  # ✅ Good - accepts redirects
   }
 
   deregistration_delay = 30
 
   tags = {
-    Name = "${var.project_name}-${var.environment}-tg"
+    Name        = "${var.project_name}-${var.environment}-tg"
+    Environment = var.environment
   }
 }
 
-# HTTP Listener - Redirect to HTTPS if certificate exists
+# ============================================
+# HTTP Listener - Redirect to HTTPS (if certificate exists)
+# ============================================
+
 resource "aws_lb_listener" "http" {
   load_balancer_arn = aws_lb.main.arn
   port              = "80"
   protocol          = "HTTP"
 
-  default_action {
-    type = var.domain_name != "" ? "redirect" : "forward"
+  # Redirect to HTTPS if domain name is configured
+  dynamic "default_action" {
+    for_each = var.domain_name != "" ? [1] : []
+    content {
+      type = "redirect"
 
-    # Redirect to HTTPS if certificate exists
-    dynamic "redirect" {
-      for_each = var.domain_name != "" ? [1] : []
-      content {
+      redirect {
         port        = "443"
         protocol    = "HTTPS"
         status_code = "HTTP_301"
       }
     }
+  }
 
-    # Forward to target group if no certificate
-    target_group_arn = var.domain_name == "" ? aws_lb_target_group.main.arn : null
+  # Forward to target group if no domain name (HTTP only)
+  dynamic "default_action" {
+    for_each = var.domain_name == "" ? [1] : []
+    content {
+      type             = "forward"
+      target_group_arn = aws_lb_target_group.main.arn
+    }
+  }
+
+  tags = {
+    Name = "${var.project_name}-${var.environment}-http-listener"
   }
 }
 
+# ============================================
 # HTTPS Listener (only if certificate exists)
+# ============================================
+
 resource "aws_lb_listener" "https" {
   count             = var.domain_name != "" ? 1 : 0
   load_balancer_arn = aws_lb.main.arn
@@ -77,6 +101,10 @@ resource "aws_lb_listener" "https" {
   default_action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.main.arn
+  }
+
+  tags = {
+    Name = "${var.project_name}-${var.environment}-https-listener"
   }
 
   depends_on = [aws_acm_certificate_validation.main]
