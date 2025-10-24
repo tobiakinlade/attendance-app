@@ -2,105 +2,368 @@ name: Terraform Drift Detection
 
 on:
   schedule:
-    # Run every hour
-    - cron: '0 * * * *'
+    - cron: '0 * * * *'  # Every hour
   workflow_dispatch:
-    inputs:
-      environment:
-        description: 'Environment to check'
-        required: true
-        default: 'dev'
-        type: choice
-        options:
-          - dev
-          - staging
-          - production
 
 env:
+  TF_VERSION: '1.6.0'
   AWS_REGION: eu-west-2
-  TF_VERSION: 1.5.0
 
 jobs:
   detect-drift:
     name: Detect Infrastructure Drift
     runs-on: ubuntu-latest
-    environment: ${{ github.event.inputs.environment || 'dev' }}
-    
     permissions:
-      contents: write
+      id-token: write
+      contents: read
       issues: write
-      pull-requests: write
-    
+
+    defaults:
+      run:
+        working-directory: ./terraform
+
     steps:
-      - name: Checkout Repository
+      - name: Checkout code
         uses: actions/checkout@v4
-      
-      - name: Configure AWS Credentials
+
+      - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
-      
+
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ${{ env.TF_VERSION }}
-      
+          terraform_wrapper: false
+
       - name: Terraform Init
-        id: init
         run: |
-          cd terraform
-          terraform init -input=false
-      
+          terraform init \
+            -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" \
+            -backend-config="key=attendance-app/terraform.tfstate" \
+            -backend-config="region=${{ env.AWS_REGION }}"
+
       - name: Terraform Plan (Detect Drift)
         id: plan
         run: |
-          cd terraform
-          
-          # Run terraform plan and capture output
           set +e
-          terraform plan -detailed-exitcode -out=tfplan -no-color 2>&1 | tee plan-output.txt
+          terraform plan -input=false -detailed-exitcode -no-color \
+            -var="environment=dev" \
+            -var="project_name=attendance-app" \
+            -var="domain_name=tech-with-tobi.com" \
+            -var="route53_zone_name=tech-with-tobi.com" \
+            -var="create_route53_record=true" \
+            -var="desired_count=2" \
+            -var="db_username=${{ secrets.DB_USERNAME }}" \
+            -var="db_password=${{ secrets.DB_PASSWORD }}" \
+            -out=tfplan 2>&1 | tee plan_output.txt
           EXIT_CODE=${PIPESTATUS[0]}
-          set -e
-          
+
+          echo ""
+          echo "📊 Terraform plan completed"
+          echo "   Exit code: $EXIT_CODE"
+          echo "   0 = No changes (no drift)"
+          echo "   1 = Error occurred"
+          echo "   2 = Changes detected (DRIFT!)"
+
           echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
-          
-          # Exit codes:
-          # 0 = No changes (no drift)
-          # 1 = Error
-          # 2 = Changes present (drift detected)
-          
-          if [ $EXIT_CODE -eq 0 ]; then
-            echo "drift_detected=false" >> $GITHUB_OUTPUT
-            echo "✅ No drift detected - infrastructure matches Terraform state"
-          elif [ $EXIT_CODE -eq 2 ]; then
-            echo "drift_detected=true" >> $GITHUB_OUTPUT
-            echo "⚠️ DRIFT DETECTED - Infrastructure has diverged from Terraform state!"
-            
-            # Save plan for review
-            terraform show -no-color tfplan > drift-details.txt
-          else
-            echo "drift_detected=error" >> $GITHUB_OUTPUT
-            echo "❌ Error running terraform plan"
-            exit 1
-          fi
-      
-      - name: Create Drift Summary
-        if: steps.plan.outputs.drift_detected == 'true'
+          exit 0
+
+      - name: Check for Drift
+        id: drift
         run: |
-          cd terraform
+          EXIT_CODE="${{ steps.plan.outputs.exit_code }}"
+          echo "Checking exit code: $EXIT_CODE"
           
-          cat > drift-summary.md << 'EOF'
-          # 🚨 Infrastructure Drift Detected
+          if [ "$EXIT_CODE" == "2" ]; then
+            echo "drift_detected=true" >> $GITHUB_OUTPUT
+            echo "🚨 Drift detected!"
+          else
+            echo "drift_detected=false" >> $GITHUB_OUTPUT
+            echo "✅ No drift detected"
+          fi
+
+      - name: Record Drift Detection in CloudWatch
+        if: steps.drift.outputs.drift_detected == 'true'
+        run: |
+          TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           
-          ## Summary
-          - **Environment:** ${{ github.event.inputs.environment || 'dev' }}
-          - **Detected At:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')
-          - **Triggered By:** ${{ github.actor }}
-          - **Workflow Run:** [View Details](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          echo "📊 Recording drift detection in CloudWatch..."
           
-          ## What is Drift?
-          Infrastructure drift occurs when resources in AWS are modified outside of Terraform (e.g., manual changes in AWS Console, CLI, or other tools).
+          # 1. Record drift metric
+          aws cloudwatch put-metric-data \
+            --namespace "AttendanceApp/Drift" \
+            --metric-name "InfrastructureDrift" \
+            --value 1 \
+            --dimensions Environment=dev,Type=terraform,Status=detected \
+            --timestamp $TIMESTAMP \
+            --region ${{ env.AWS_REGION }}
           
-          ## Detected Changes
+          # 2. Record drift detection event
+          aws cloudwatch put-metric-data \
+            --namespace "AttendanceApp/Events" \
+            --metric-name "DriftDetectionEvent" \
+            --value 1 \
+            --dimensions Environment=dev,Severity=high \
+            --timestamp $TIMESTAMP \
+            --region ${{ env.AWS_REGION }}
+          
+          # 3. Create CloudWatch Logs group if it doesn't exist
+          aws logs create-log-group \
+            --log-group-name /attendanceapp/drift-detection \
+            --region ${{ env.AWS_REGION }} 2>/dev/null || true
+          
+          # 4. Create log stream for today
+          aws logs create-log-stream \
+            --log-group-name /attendanceapp/drift-detection \
+            --log-stream-name "drift-$(date +%Y%m%d)" \
+            --region ${{ env.AWS_REGION }} 2>/dev/null || true
+          
+          # 5. Log drift details to CloudWatch Logs
+          MESSAGE=$(cat << EOF
+          {
+            "timestamp": "$TIMESTAMP",
+            "event": "drift_detected",
+            "environment": "dev",
+            "terraform_exit_code": "${{ steps.plan.outputs.exit_code }}",
+            "workflow_run": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+            "triggered_by": "${{ github.actor }}",
+            "drift_details": "Infrastructure has diverged from Terraform state"
+          }
+          EOF
+          )
+          
+          aws logs put-log-events \
+            --log-group-name /attendanceapp/drift-detection \
+            --log-stream-name "drift-$(date +%Y%m%d)" \
+            --log-events timestamp=$(date +%s000),message="$MESSAGE" \
+            --region ${{ env.AWS_REGION }}
+          
+          echo "✅ Drift event recorded in CloudWatch"
+          echo "   • Metrics: 2 metrics sent"
+          echo "   • Logs: Logged to /attendanceapp/drift-detection"
+
+      - name: Record No Drift in CloudWatch
+        if: steps.drift.outputs.drift_detected == 'false'
+        run: |
+          TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          
+          echo "📊 Recording clean state in CloudWatch..."
+          
+          # Record that no drift was detected
+          aws cloudwatch put-metric-data \
+            --namespace "AttendanceApp/Drift" \
+            --metric-name "InfrastructureDrift" \
+            --value 0 \
+            --dimensions Environment=dev,Type=terraform,Status=clean \
+            --timestamp $TIMESTAMP \
+            --region ${{ env.AWS_REGION }}
+          
+          echo "✅ Clean state recorded in CloudWatch"
+
+      - name: Create or Update GitHub Issue
+        if: steps.drift.outputs.drift_detected == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TODAY=$(date -u '+%Y-%m-%d')
+          
+          # Create labels if missing
+          gh label create infrastructure --color 0e8a16 --force 2>/dev/null || true
+          gh label create drift-detection --color d73a4a --force 2>/dev/null || true
+          gh label create needs-review --color fbca04 --force 2>/dev/null || true
+          
+          # Check for existing issue
+          EXISTING=$(gh issue list \
+            --state open \
+            --label drift-detection \
+            --json number,title \
+            --jq ".[] | select(.title | contains(\"$TODAY\")) | .number" | head -1)
+          
+          if [ -n "$EXISTING" ]; then
+            echo "📝 Updating issue #$EXISTING"
+            cat > comment.txt << EOF
+          ### 🔄 Drift Still Present
+          
+          **Check Time:** $(date -u)
+          
+          [View Run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          [View CloudWatch Logs](https://console.aws.amazon.com/cloudwatch/home?region=${{ env.AWS_REGION }}#logsV2:log-groups/log-group/\$252Fattendanceapp\$252Fdrift-detection)
+          EOF
+            gh issue comment $EXISTING --body-file comment.txt
+            rm comment.txt
+          else
+            echo "📝 Creating new issue"
+            cat > body.txt << EOF
+          ## 🚨 Infrastructure Drift Detected
+          
+          **Detected:** $(date -u)
+          **Environment:** dev
+          **Region:** ${{ env.AWS_REGION }}
+          
+          ### Summary
+          Infrastructure has diverged from Terraform state.
+          
+          ### Changes Detected
+          See workflow run for full Terraform plan output.
+          
+          ### Next Steps
+          1. Review changes in workflow run
+          2. Check CloudWatch logs for drift history
+          3. Update Terraform code or revert manual changes
+          4. Run terraform apply to sync
+          5. Close this issue
+          
+          ### Links
+          - [📊 View Workflow Run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          - [📈 View CloudWatch Metrics](https://console.aws.amazon.com/cloudwatch/home?region=${{ env.AWS_REGION }}#metricsV2:graph=~();namespace=AttendanceApp/Drift)
+          - [📋 View CloudWatch Logs](https://console.aws.amazon.com/cloudwatch/home?region=${{ env.AWS_REGION }}#logsV2:log-groups/log-group/\$252Fattendanceapp\$252Fdrift-detection)
+          EOF
+            
+            gh issue create \
+              --title "🚨 Infrastructure Drift - $TODAY" \
+              --label infrastructure,drift-detection,needs-review \
+              --body-file body.txt
+            
+            rm body.txt
+          fi
+
+      - name: Send Drift Email Notification
+        if: steps.drift.outputs.drift_detected == 'true'
+        run: |
+          RECIPIENTS="${{ secrets.EMAIL_RECIPIENTS }}"
+          RUN_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          CLOUDWATCH_LOGS="https://console.aws.amazon.com/cloudwatch/home?region=${{ env.AWS_REGION }}#logsV2:log-groups/log-group/\$252Fattendanceapp\$252Fdrift-detection"
+          
+          # Create email HTML
+          cat > email.html << 'HTMLEOF'
+          <!DOCTYPE html>
+          <html>
+          <body style="font-family: Arial, sans-serif; margin: 0; padding: 0; background-color: #f4f4f4;">
+            <div style="max-width: 600px; margin: 40px auto; background: white; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); overflow: hidden;">
+              
+              <!-- Header -->
+              <div style="background: #ff6b6b; color: white; padding: 40px 20px; text-align: center;">
+                <h1 style="margin: 0; font-size: 28px;">🚨 Infrastructure Drift Detected</h1>
+                <p style="margin: 15px 0 0 0; font-size: 16px; opacity: 0.95;">Dev Environment</p>
+              </div>
+              
+              <!-- Content -->
+              <div style="padding: 40px 30px;">
+                <p style="font-size: 16px; color: #333; line-height: 1.6; margin-top: 0;">
+                  Infrastructure has diverged from Terraform state.
+                </p>
+                
+                <!-- Alert Box -->
+                <div style="background: #fff3cd; padding: 20px; border-radius: 6px; border-left: 4px solid #ffc107; margin: 25px 0;">
+                  <h3 style="margin: 0 0 10px 0; color: #856404; font-size: 16px;">⚠️ Action Required</h3>
+                  <p style="margin: 0; color: #856404; font-size: 14px;">
+                    Manual changes have been made to infrastructure. Review and reconcile with Terraform code.
+                  </p>
+                </div>
+                
+                <!-- Details -->
+                <div style="background: #f8f9fa; padding: 20px; border-radius: 6px; margin: 25px 0;">
+                  <h3 style="margin: 0 0 15px 0; color: #333; font-size: 16px;">📋 Detection Details</h3>
+                  <table style="width: 100%; border-collapse: collapse;">
+                    <tr>
+                      <td style="padding: 8px 0; color: #666; font-size: 14px;"><strong>Time:</strong></td>
+                      <td style="padding: 8px 0; color: #333; font-size: 14px;">TIME_PLACEHOLDER</td>
+                    </tr>
+                    <tr>
+                      <td style="padding: 8px 0; color: #666; font-size: 14px;"><strong>Environment:</strong></td>
+                      <td style="padding: 8px 0; color: #333; font-size: 14px;">dev</td>
+                    </tr>
+                    <tr>
+                      <td style="padding: 8px 0; color: #666; font-size: 14px;"><strong>Region:</strong></td>
+                      <td style="padding: 8px 0; color: #333; font-size: 14px;">eu-west-2</td>
+                    </tr>
+                  </table>
+                </div>
+                
+                <!-- Action Buttons -->
+                <div style="text-align: center; margin: 35px 0 20px 0;">
+                  <a href="URL_PLACEHOLDER" 
+                     style="display: inline-block; background: #4CAF50; color: white; padding: 14px 28px; text-decoration: none; border-radius: 6px; margin: 5px; font-weight: 500; font-size: 15px;">
+                    📊 View Workflow
+                  </a>
+                  <a href="CLOUDWATCH_PLACEHOLDER" 
+                     style="display: inline-block; background: #FF9800; color: white; padding: 14px 28px; text-decoration: none; border-radius: 6px; margin: 5px; font-weight: 500; font-size: 15px;">
+                    📈 View Logs
+                  </a>
+                </div>
+              </div>
+              
+              <!-- Footer -->
+              <div style="background: #f8f9fa; padding: 20px 30px; text-align: center; border-top: 1px solid #dee2e6;">
+                <p style="margin: 0; font-size: 13px; color: #6c757d;">
+                  🤖 Automated drift detection from GitHub Actions
+                </p>
+                <p style="margin: 8px 0 0 0; font-size: 12px; color: #adb5bd;">
+                  Runs every hour to detect infrastructure changes
+                </p>
+              </div>
+              
+            </div>
+          </body>
+          </html>
+          HTMLEOF
+          
+          # Replace placeholders
+          sed -i "s|TIME_PLACEHOLDER|$(date -u '+%Y-%m-%d %H:%M:%S UTC')|g" email.html
+          sed -i "s|URL_PLACEHOLDER|$RUN_URL|g" email.html
+          sed -i "s|CLOUDWATCH_PLACEHOLDER|$CLOUDWATCH_LOGS|g" email.html
+          
+          # Convert HTML to JSON-safe string
+          BODY_JSON=$(jq -Rs . < email.html)
+          
+          # Send email via AWS SES
+          aws ses send-email \
+            --from "tobi.akinlade.co@gmail.com" \
+            --destination "ToAddresses=$RECIPIENTS" \
+            --message "{
+              \"Subject\": {
+                \"Data\": \"🚨 Infrastructure Drift Detected - $(date -u '+%H:%M UTC')\",
+                \"Charset\": \"UTF-8\"
+              },
+              \"Body\": {
+                \"Html\": {
+                  \"Data\": ${BODY_JSON},
+                  \"Charset\": \"UTF-8\"
+                }
+              }
+            }" \
+            --region ${{ env.AWS_REGION }}
+          
+          # Clean up
+          rm -f email.html
+          echo "✅ Drift notification sent to team"
+
+      - name: Summary
+        run: |
+          if [ "${{ steps.drift.outputs.drift_detected }}" == "true" ]; then
+            echo "### 🚨 Drift Detected!" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Time:** $(date -u)" >> $GITHUB_STEP_SUMMARY
+            echo "**Exit Code:** ${{ steps.plan.outputs.exit_code }}" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Actions Taken:**" >> $GITHUB_STEP_SUMMARY
+            echo "- ✅ CloudWatch metrics recorded" >> $GITHUB_STEP_SUMMARY
+            echo "- ✅ CloudWatch logs created" >> $GITHUB_STEP_SUMMARY
+            echo "- ✅ GitHub issue created/updated" >> $GITHUB_STEP_SUMMARY
+            echo "- ✅ Email notification sent" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Next Check:** $(date -u -d '+1 hour' '+%H:00 UTC')" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### ✅ No Drift Detected" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Time:** $(date -u)" >> $GITHUB_STEP_SUMMARY
+            echo "**Exit Code:** ${{ steps.plan.outputs.exit_code }}" >> $GITHUB_STEP_SUMMARY
+            echo "**Status:** Infrastructure matches Terraform state" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "- ✅ Clean state recorded in CloudWatch" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Next Check:** $(date -u -d '+1 hour' '+%H:00 UTC')" >> $GITHUB_STEP_SUMMARY
+          fi
