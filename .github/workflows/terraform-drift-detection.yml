@@ -122,23 +122,28 @@ jobs:
             --region ${{ env.AWS_REGION }} 2>/dev/null || true
           
           # 5. Log drift details to CloudWatch Logs
-          MESSAGE=$(cat << EOF
-          {
-            "timestamp": "$TIMESTAMP",
-            "event": "drift_detected",
-            "environment": "dev",
-            "terraform_exit_code": "${{ steps.plan.outputs.exit_code }}",
-            "workflow_run": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
-            "triggered_by": "${{ github.actor }}",
-            "drift_details": "Infrastructure has diverged from Terraform state"
-          }
-          EOF
-          )
+          # Create JSON message and escape it properly
+          MESSAGE=$(jq -n \
+            --arg timestamp "$TIMESTAMP" \
+            --arg env "dev" \
+            --arg exit_code "${{ steps.plan.outputs.exit_code }}" \
+            --arg workflow_run "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --arg actor "${{ github.actor }}" \
+            '{
+              timestamp: $timestamp,
+              event: "drift_detected",
+              environment: $env,
+              terraform_exit_code: $exit_code,
+              workflow_run: $workflow_run,
+              triggered_by: $actor,
+              drift_details: "Infrastructure has diverged from Terraform state"
+            }' | jq -c)
           
+          # Put log events with proper JSON array format
           aws logs put-log-events \
             --log-group-name /attendanceapp/drift-detection \
             --log-stream-name "drift-$(date +%Y%m%d)" \
-            --log-events timestamp=$(date +%s000),message="$MESSAGE" \
+            --log-events "[{\"timestamp\":$(date +%s000),\"message\":$MESSAGE}]" \
             --region ${{ env.AWS_REGION }}
           
           echo "✅ Drift event recorded in CloudWatch"
